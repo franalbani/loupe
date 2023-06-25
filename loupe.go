@@ -13,6 +13,7 @@ import (
 
 // this model will be used for BubbleTea state
 type model struct {
+    com string
     stdout_lines, stderr_lines string
     selected_tab int
     exit_code int
@@ -94,8 +95,7 @@ func (m model) View() string {
                                    )
         m.vp.SetContent(m.stderr_lines)
     }
-
-    s := tab_header + "\n" + content_style.Render(m.vp.View()) + "\n"
+    s := tab_header + "\n" + m.com + "\n" + content_style.Render(m.vp.View()) + "\n"
     ec_color := "3"
     if m.exit_code != 0 {
         ec_color = "9"
@@ -126,7 +126,8 @@ func main() {
     ti := textinput.New()
     ti.Placeholder = "stdin"
     ti.Prompt = "$ "
-    initial_state := model{stdout_lines: stdout.String(),
+    initial_state := model{com: fmt.Sprintf("%v", os.Args[1:]),
+                           stdout_lines: stdout.String(),
                            stderr_lines: stderr.String(),
                            selected_tab: 0,
                            exit_code: cmd.ProcessState.ExitCode(),
