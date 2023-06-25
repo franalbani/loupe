@@ -17,6 +17,7 @@ $ go build loupe
 
 ### Info
 
+* [ ] support for running processes!
 * [x] `stdout` tab
 * [x] `stderr` tab
 * [x] `exit code`

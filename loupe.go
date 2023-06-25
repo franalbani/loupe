@@ -22,12 +22,12 @@ type model struct {
     stdin_ti textinput.Model
 }
 
-// this function is required by BubbleTea
+// this method is required by BubbleTea
 func (m model) Init() tea.Cmd {
     return textinput.Blink
 }
 
-// this function is required by BubbleTea
+// this method is required by BubbleTea
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     var tiCmd, vp_cmd tea.Cmd
 
@@ -36,7 +36,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case tea.KeyMsg:
         switch msg.String() {
             case "tab":
-                m.selected_tab = (m.selected_tab + 1) % 2
+                m.selected_tab = (m.selected_tab + 1) % 4
             case "ctrl+c":
                 return m, tea.Quit
         }
@@ -52,12 +52,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         }
     }
 
+    content := ""
     switch m.selected_tab {
     case 0:
-        m.vp.SetContent(m.stdout_lines)
+        content = m.stdout_lines
     case 1:
-        m.vp.SetContent(m.stderr_lines)
+        content = m.stderr_lines
+    default:
+        content = "soon"
     }
+    m.vp.SetContent(content)
 
     m.vp, vp_cmd = m.vp.Update(msg)
     m.stdin_ti, tiCmd = m.stdin_ti.Update(msg)
@@ -65,54 +69,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     return m, tea.Batch(tiCmd, vp_cmd)
 }
 
-var title_style = lg.NewStyle().
-                     BorderStyle(lg.RoundedBorder()).
-                     BorderForeground(lg.Color("63")).
-                     Foreground(lg.Color("5"))
+var tab_styles = map[bool]lg.Style{
+    false: lg.NewStyle().
+               BorderStyle(lg.RoundedBorder()).
+               BorderForeground(lg.Color("63")).
+               Foreground(lg.Color("5")),
+    true: lg.NewStyle().
+             BorderStyle(lg.RoundedBorder()).
+             BorderForeground(lg.Color("63")).
+             Foreground(lg.Color("86")),
+}
 
-var selected_style = lg.NewStyle().
-                        Bold(true).
-                        BorderStyle(lg.RoundedBorder()).
-                        BorderForeground(lg.Color("63")).
-                        Foreground(lg.Color("86"))
+func tab_header(selected_tab int) string {
+    return lg.JoinHorizontal(lg.Top,
+                             tab_styles[selected_tab == 0].Render("stdout"),
+                             tab_styles[selected_tab == 1].Render("stderr"),
+                             tab_styles[selected_tab == 2].Render("syscalls"),
+                             tab_styles[selected_tab == 3].Render("ports"),
+                             )
+}
 
 var content_style = lg.NewStyle().
                        BorderStyle(lg.RoundedBorder()).
                        BorderForeground(lg.Color("63"))
 
-// this function is required by BubbleTea
+var help_footer = lg.NewStyle().
+                     Foreground(lg.Color("#5C5C5C")).
+                     SetString("\nTAB for switching, CTRL + C to quit.\n")
+
+// this method is required by BubbleTea
 func (m model) View() string {
 
-    tab_header := ""
-
-    switch m.selected_tab {
-    case 0:
-        tab_header = lg.JoinHorizontal(lg.Bottom,
-                                       selected_style.Render("stdout"),
-                                       title_style.Render("stderr"),
-                                       title_style.Render("syscalls"),
-                                       title_style.Render("ports"),
-                                   )
-    case 1:
-        tab_header = lg.JoinHorizontal(lg.Bottom,
-                                       title_style.Render("stdout"),
-                                       selected_style.Render("stderr"),
-                                       title_style.Render("syscalls"),
-                                       title_style.Render("ports"),
-                                   )
-    }
-
-    s := tab_header + "\n" + m.com + "\n" + content_style.Width(m.vp.Width - 2).Render(m.vp.View()) + "\n"
     ec_color := "3"
     if m.exit_code != 0 {
         ec_color = "9"
     }
-
     ec_style := lg.NewStyle().Foreground(lg.Color(ec_color))
-    s += "| Exit code: " + ec_style.Render(fmt.Sprintf("%d", m.exit_code)) + "\n"
-    s += m.stdin_ti.View()
-    help_style := lg.NewStyle().Foreground(lg.Color("#5C5C5C"))
-    s += help_style.Render("\nTAB for switching, CTRL + C to quit.\n")
+    s := lg.JoinVertical(lg.Left,
+            tab_header(m.selected_tab),
+            m.com,
+            content_style.Width(m.vp.Width - 2).Render(m.vp.View()),
+            "| Exit code: " + ec_style.Render(fmt.Sprintf("%d", m.exit_code)),
+            m.stdin_ti.View(),
+            help_footer.Render())
     return s
 }
 
@@ -125,11 +124,7 @@ func main() {
     cmd.Stdout = &stdout
     cmd.Stderr = &stderr
 
-    // err := cmd.Run()
     cmd.Run()
-    // if err != nil {
-    //     fmt.Println(err)
-    // }
     ti := textinput.New()
     ti.Placeholder = "stdin"
     ti.Prompt = "$ "
