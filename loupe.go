@@ -51,29 +51,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             m.vp.Height = msg.Height
         }
     }
+
+    switch m.selected_tab {
+    case 0:
+        m.vp.SetContent(m.stdout_lines)
+    case 1:
+        m.vp.SetContent(m.stderr_lines)
+    }
+
     m.vp, vp_cmd = m.vp.Update(msg)
     m.stdin_ti, tiCmd = m.stdin_ti.Update(msg)
 
     return m, tea.Batch(tiCmd, vp_cmd)
 }
 
-// this function is required by BubbleTea
-func (m model) View() string {
-    title_style := lg.NewStyle().
-                      BorderStyle(lg.RoundedBorder()).
-                      BorderForeground(lg.Color("63")).
-                      Foreground(lg.Color("5"))
+var title_style = lg.NewStyle().
+                     BorderStyle(lg.RoundedBorder()).
+                     BorderForeground(lg.Color("63")).
+                     Foreground(lg.Color("5"))
 
-    selected_style := lg.NewStyle().
-                         Bold(true).
-                         BorderStyle(lg.RoundedBorder()).
-                         BorderForeground(lg.Color("63")).
-                         Foreground(lg.Color("86"))
-
-    content_style := lg.NewStyle().
+var selected_style = lg.NewStyle().
+                        Bold(true).
                         BorderStyle(lg.RoundedBorder()).
                         BorderForeground(lg.Color("63")).
-                        Width(m.vp.Width - 2)
+                        Foreground(lg.Color("86"))
+
+var content_style = lg.NewStyle().
+                       BorderStyle(lg.RoundedBorder()).
+                       BorderForeground(lg.Color("63"))
+
+// this function is required by BubbleTea
+func (m model) View() string {
 
     tab_header := ""
 
@@ -85,7 +93,6 @@ func (m model) View() string {
                                        title_style.Render("syscalls"),
                                        title_style.Render("ports"),
                                    )
-        m.vp.SetContent(m.stdout_lines)
     case 1:
         tab_header = lg.JoinHorizontal(lg.Bottom,
                                        title_style.Render("stdout"),
@@ -93,9 +100,9 @@ func (m model) View() string {
                                        title_style.Render("syscalls"),
                                        title_style.Render("ports"),
                                    )
-        m.vp.SetContent(m.stderr_lines)
     }
-    s := tab_header + "\n" + m.com + "\n" + content_style.Render(m.vp.View()) + "\n"
+
+    s := tab_header + "\n" + m.com + "\n" + content_style.Width(m.vp.Width - 2).Render(m.vp.View()) + "\n"
     ec_color := "3"
     if m.exit_code != 0 {
         ec_color = "9"
