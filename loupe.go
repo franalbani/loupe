@@ -14,7 +14,7 @@ import (
 // this model will be used for BubbleTea state
 type model struct {
     com string
-    stdout_lines, stderr_lines string
+    stdout_lines, stderr_lines, strace_lines string
     selected_tab int
     exit_code int
     ready bool
@@ -58,6 +58,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         content = m.stdout_lines
     case 1:
         content = m.stderr_lines
+    case 2:
+        content = m.strace_lines
     default:
         content = "soon"
     }
@@ -116,9 +118,14 @@ func (m model) View() string {
 }
 
 func main() {
-    args := os.Args[1:]
+    // FIXME: improve strace output handling
+    // maybe with a fifo
+    strace_file_path := "/tmp/loupe_strace"
+    _args := []string{"strace", "--output", strace_file_path}
 
-    cmd := exec.Command(args[0], args[1:]...)
+    args := os.Args[1:]
+    _args = append(_args, args...)
+    cmd := exec.Command(_args[0], _args[1:]...)
 
     var stdout, stderr bytes.Buffer
     cmd.Stdout = &stdout
@@ -128,9 +135,13 @@ func main() {
     ti := textinput.New()
     ti.Placeholder = "stdin"
     ti.Prompt = "$ "
+
+    strace_data, _ := os.ReadFile(strace_file_path)
+
     initial_state := model{com: fmt.Sprintf("%v", os.Args[1:]),
                            stdout_lines: stdout.String(),
                            stderr_lines: stderr.String(),
+                           strace_lines: string(strace_data),
                            selected_tab: 0,
                            exit_code: cmd.ProcessState.ExitCode(),
                            stdin_ti: ti,

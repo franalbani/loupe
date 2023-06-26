@@ -22,7 +22,7 @@ $ go build loupe
 * [x] `stderr` tab
 * [x] `exit code`
 * [ ] `stdin` redirection from text input
-* [ ] syscalls and signals tab (`strace`)
+* [x] syscalls and signals tab (`strace`)
 * [ ] opened files (`lsof -p $PID`)
 * [ ] opened connections (`netstat`)
 * [ ] CPU and MEM stats
