@@ -15,22 +15,4 @@ $ go build loupe
 
 ## Pending
 
-### Info
-
-* [ ] support for running processes!
-* [x] `stdout` tab
-* [x] `stderr` tab
-* [x] `exit code`
-* [ ] `stdin` redirection from text input
-* [x] syscalls and signals tab (`strace`)
-* [ ] opened files (`lsof -p $PID`)
-* [ ] opened connections (`netstat`)
-* [ ] CPU and MEM stats
-* [ ] *please suggest more!*
-
-### visual
-
-* [x] AltScreen
-* [x] `stdin` textinput
-* [x] scrollable fixed-height viewports
-
+See Milestones and Issues.
