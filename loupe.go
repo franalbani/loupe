@@ -86,7 +86,7 @@ func tab_header(selected_tab int) string {
     return lg.JoinHorizontal(lg.Top,
                              tab_styles[selected_tab == 0].Render("stdout"),
                              tab_styles[selected_tab == 1].Render("stderr"),
-                             tab_styles[selected_tab == 2].Render("syscalls"),
+                             tab_styles[selected_tab == 2].Render("strace"),
                              tab_styles[selected_tab == 3].Render("ports"),
                              )
 }
@@ -97,7 +97,7 @@ var content_style = lg.NewStyle().
 
 var help_footer = lg.NewStyle().
                      Foreground(lg.Color("#5C5C5C")).
-                     SetString("\nTAB for switching, CTRL + C to quit.\n")
+                     SetString("TAB for switching, CTRL + C to quit.")
 
 // this method is required by BubbleTea
 func (m model) View() string {
@@ -108,8 +108,8 @@ func (m model) View() string {
     }
     ec_style := lg.NewStyle().Foreground(lg.Color(ec_color))
     s := lg.JoinVertical(lg.Left,
-            tab_header(m.selected_tab),
             m.com,
+            tab_header(m.selected_tab),
             content_style.Width(m.vp.Width - 2).Render(m.vp.View()),
             "| Exit code: " + ec_style.Render(fmt.Sprintf("%d", m.exit_code)),
             m.stdin_ti.View(),
