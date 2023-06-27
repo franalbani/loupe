@@ -15,6 +15,7 @@ import (
 type model struct {
     com string
     stdout_lines, stderr_lines, strace_lines string
+    opened_files string
     selected_tab int
     exit_code int
     ready bool
@@ -60,6 +61,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         content = m.stderr_lines
     case 2:
         content = m.strace_lines
+    case 3:
+        content = m.opened_files
     default:
         content = "soon"
     }
@@ -87,7 +90,7 @@ func tab_header(selected_tab int) string {
                              tab_styles[selected_tab == 0].Render("stdout"),
                              tab_styles[selected_tab == 1].Render("stderr"),
                              tab_styles[selected_tab == 2].Render("strace"),
-                             tab_styles[selected_tab == 3].Render("ports"),
+                             tab_styles[selected_tab == 3].Render("files"),
                              )
 }
 
@@ -109,9 +112,9 @@ func (m model) View() string {
     ec_style := lg.NewStyle().Foreground(lg.Color(ec_color))
     s := lg.JoinVertical(lg.Left,
             m.com,
+            "| Exit code: " + ec_style.Render(fmt.Sprintf("%d", m.exit_code)),
             tab_header(m.selected_tab),
             content_style.Width(m.vp.Width - 2).Render(m.vp.View()),
-            "| Exit code: " + ec_style.Render(fmt.Sprintf("%d", m.exit_code)),
             m.stdin_ti.View(),
             help_footer.Render())
     return s
@@ -138,10 +141,13 @@ func main() {
 
     strace_data, _ := os.ReadFile(strace_file_path)
 
+    openat, _ := exec.Command("sh", "-c", "awk '/openat/ {print $2}' /tmp/loupe_strace | sed 's/^\"//; s/\",$//' ").Output()
+
     initial_state := model{com: fmt.Sprintf("%v", os.Args[1:]),
                            stdout_lines: stdout.String(),
                            stderr_lines: stderr.String(),
                            strace_lines: string(strace_data),
+                           opened_files: string(openat),
                            selected_tab: 0,
                            exit_code: cmd.ProcessState.ExitCode(),
                            stdin_ti: ti,
