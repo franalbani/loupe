@@ -47,13 +47,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
     case tea.WindowSizeMsg:
         if !m.ready {
-            m.vp = viewport.New(msg.Width, msg.Height-10)
-            m.vp.SetContent(m.stdout_lines)
+            m.vp = viewport.New(1, 1)
             m.ready = true
-        } else {
-            m.vp.Width = msg.Width
-            m.vp.Height = msg.Height
         }
+        m.vp.Width = msg.Width
+        m.vp.Height = msg.Height - 9 // FIXME --> softcode the 9
+
+        // FIXME: force a minimum Width for borders
+        m.vp.Style = content_style
     }
 
     content := ""
@@ -114,10 +115,10 @@ func (m model) View() string {
     }
     ec_style := lg.NewStyle().Foreground(lg.Color(ec_color))
     s := lg.JoinVertical(lg.Left,
-            m.com,
+            tab_styles[false].Render(m.com),
             "| Exit code: " + ec_style.Render(fmt.Sprintf("%d", m.exit_code)),
             tab_header(m.selected_tab),
-            content_style.Width(m.vp.Width - 2).Render(m.vp.View()),
+            m.vp.View(),
             m.stdin_ti.View(),
             help_footer.Render())
     return s
