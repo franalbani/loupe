@@ -5,6 +5,7 @@ import (
         "bytes"
         "os"
         "os/exec"
+        "strings"
         tea "github.com/charmbracelet/bubbletea"
         lg "github.com/charmbracelet/lipgloss"
         "github.com/charmbracelet/bubbles/viewport"
@@ -16,7 +17,7 @@ type model struct {
     com string
     stdout_lines, stderr_lines, strace_lines string
     opened_files string
-    selected_tab int
+    selected_tab uint
     exit_code int
     ready bool
     vp viewport.Model
@@ -38,6 +39,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         switch msg.String() {
             case "tab":
                 m.selected_tab = (m.selected_tab + 1) % 4
+            case "shift+tab":
+                m.selected_tab = (m.selected_tab - 1) % 4
             case "ctrl+c":
                 return m, tea.Quit
         }
@@ -85,7 +88,7 @@ var tab_styles = map[bool]lg.Style{
              Foreground(lg.Color("86")),
 }
 
-func tab_header(selected_tab int) string {
+func tab_header(selected_tab uint) string {
     return lg.JoinHorizontal(lg.Top,
                              tab_styles[selected_tab == 0].Render("stdout"),
                              tab_styles[selected_tab == 1].Render("stderr"),
@@ -143,7 +146,7 @@ func main() {
 
     openat, _ := exec.Command("sh", "-c", "awk '/openat/ {print $2}' /tmp/loupe_strace | sed 's/^\"//; s/\",$//' ").Output()
 
-    initial_state := model{com: fmt.Sprintf("%v", os.Args[1:]),
+    initial_state := model{com: strings.Join(os.Args[1:], " "),
                            stdout_lines: stdout.String(),
                            stderr_lines: stderr.String(),
                            strace_lines: string(strace_data),
