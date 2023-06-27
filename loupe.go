@@ -16,7 +16,7 @@ import (
 type model struct {
     com string
     stdout_lines, stderr_lines, strace_lines string
-    opened_files string
+    opened_files, connect_lines string
     selected_tab uint
     exit_code int
     ready bool
@@ -38,9 +38,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case tea.KeyMsg:
         switch msg.String() {
             case "tab":
-                m.selected_tab = (m.selected_tab + 1) % 4
+                m.selected_tab = (m.selected_tab + 1) % 5
             case "shift+tab":
-                m.selected_tab = (m.selected_tab - 1) % 4
+                m.selected_tab = (m.selected_tab + 4) % 5
             case "ctrl+c":
                 return m, tea.Quit
         }
@@ -67,6 +67,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         content = m.strace_lines
     case 3:
         content = m.opened_files
+    case 4:
+        content = m.connect_lines
     default:
         content = "soon"
     }
@@ -95,6 +97,7 @@ func tab_header(selected_tab uint) string {
                              tab_styles[selected_tab == 1].Render("stderr"),
                              tab_styles[selected_tab == 2].Render("strace"),
                              tab_styles[selected_tab == 3].Render("files"),
+                             tab_styles[selected_tab == 4].Render("connect"),
                              )
 }
 
@@ -146,12 +149,14 @@ func main() {
     strace_data, _ := os.ReadFile(strace_file_path)
 
     openat, _ := exec.Command("sh", "-c", "awk '/openat/ {print $2}' /tmp/loupe_strace | sed 's/^\"//; s/\",$//' ").Output()
+    connects, _ := exec.Command("sh", "-c", "awk '/connect/ {print $0}' /tmp/loupe_strace").Output()
 
     initial_state := model{com: strings.Join(os.Args[1:], " "),
                            stdout_lines: stdout.String(),
                            stderr_lines: stderr.String(),
                            strace_lines: string(strace_data),
                            opened_files: string(openat),
+                           connect_lines: string(connects),
                            selected_tab: 0,
                            exit_code: cmd.ProcessState.ExitCode(),
                            stdin_ti: ti,
