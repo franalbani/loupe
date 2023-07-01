@@ -2,7 +2,6 @@ package main
 
 import (
         "fmt"
-        "bytes"
         "os"
         "os/exec"
         "strings"
@@ -10,12 +9,24 @@ import (
         lg "github.com/charmbracelet/lipgloss"
         "github.com/charmbracelet/bubbles/viewport"
         "github.com/charmbracelet/bubbles/textinput"
+
+	    "github.com/franalbani/loupe/worker"
 )
+
+type Notes struct {
+	current string
+	rest    chan string
+}
+
+func (n Notes) awaitNext() Notes {
+	return Notes{current: <-n.rest, rest: n.rest}
+}
 
 // this model will be used for BubbleTea state
 type model struct {
     com string
-    stdout_lines, stderr_lines, strace_lines string
+    stdout_lines, stderr_lines []string
+    strace_lines string
     opened_files, connect_lines string
     selected_tab uint
     exit_code int
@@ -26,6 +37,7 @@ type model struct {
 
 // this method is required by BubbleTea
 func (m *model) Init() tea.Cmd {
+
     // FIXME: improve strace output handling
     // maybe with a fifo
     strace_file_path := "/tmp/loupe_strace"
@@ -33,13 +45,18 @@ func (m *model) Init() tea.Cmd {
 
     args := os.Args[1:]
     _args = append(_args, args...)
-    cmd := exec.Command(_args[0], _args[1:]...)
 
-    var stdout, stderr bytes.Buffer
-    cmd.Stdout = &stdout
-    cmd.Stderr = &stderr
+	worker := worker.NewWorker(_args)
+	outputCh := make(chan string)
+    go worker.Run(outputCh)
 
-    cmd.Run()
+    // cmd := exec.Command(_args[0], _args[1:]...)
+
+    // var stdout, stderr bytes.Buffer
+    // cmd.Stdout = &stdout
+    // cmd.Stderr = &stderr
+
+    // cmd.Run()
     ti := textinput.New()
     ti.Placeholder = "stdin"
     ti.Prompt = "$ "
@@ -50,24 +67,21 @@ func (m *model) Init() tea.Cmd {
     connects, _ := exec.Command("sh", "-c", "awk '/connect/ {print $0}' /tmp/loupe_strace").Output()
 
     m.com = strings.Join(os.Args[1:], " ")
-    m.stdout_lines = stdout.String()
-    m.stderr_lines = stderr.String()
     m.strace_lines = string(strace_data)
     m.opened_files = string(openat)
     m.connect_lines = string(connects)
     m.selected_tab = 0
-    m.exit_code = cmd.ProcessState.ExitCode()
     m.stdin_ti = ti
 
-    fmt.Print(m)
-    return nil
-
+	return func() tea.Msg {
+	    return Notes{current: <-outputCh, rest: outputCh}
+	}
 
 }
 
 // this method is required by BubbleTea
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    var tiCmd, vp_cmd tea.Cmd
+    var tiCmd, vp_cmd, seba_cmd tea.Cmd
 
     switch msg := msg.(type) {
 
@@ -91,14 +105,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
         // FIXME: force a minimum Width for borders
         m.vp.Style = content_style
-    }
+
+	case Notes:
+		m.stdout_lines = append(m.stdout_lines, msg.current)
+        seba_cmd = func() tea.Msg { return msg.awaitNext() }
+	}
 
     content := ""
     switch m.selected_tab {
     case 0:
-        content = m.stdout_lines
+        content = strings.Join(m.stdout_lines, "\n")
     case 1:
-        content = m.stderr_lines
+        content = strings.Join(m.stderr_lines, "\n")
     case 2:
         content = m.strace_lines
     case 3:
@@ -114,7 +132,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     m.stdin_ti, tiCmd = m.stdin_ti.Update(msg)
 
     // fmt.Print(m)
-    return &m, tea.Batch(tiCmd, vp_cmd)
+    return &m, tea.Batch(tiCmd, vp_cmd, seba_cmd)
 }
 
 var tab_styles = map[bool]lg.Style{
