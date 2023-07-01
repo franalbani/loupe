@@ -25,8 +25,44 @@ type model struct {
 }
 
 // this method is required by BubbleTea
-func (m model) Init() tea.Cmd {
-    return textinput.Blink
+func (m *model) Init() tea.Cmd {
+    // FIXME: improve strace output handling
+    // maybe with a fifo
+    strace_file_path := "/tmp/loupe_strace"
+    _args := []string{"strace", "--output", strace_file_path}
+
+    args := os.Args[1:]
+    _args = append(_args, args...)
+    cmd := exec.Command(_args[0], _args[1:]...)
+
+    var stdout, stderr bytes.Buffer
+    cmd.Stdout = &stdout
+    cmd.Stderr = &stderr
+
+    cmd.Run()
+    ti := textinput.New()
+    ti.Placeholder = "stdin"
+    ti.Prompt = "$ "
+
+    strace_data, _ := os.ReadFile(strace_file_path)
+
+    openat, _ := exec.Command("sh", "-c", "awk '/openat/ {print $2}' /tmp/loupe_strace | sed 's/^\"//; s/\",$//' ").Output()
+    connects, _ := exec.Command("sh", "-c", "awk '/connect/ {print $0}' /tmp/loupe_strace").Output()
+
+    m.com = strings.Join(os.Args[1:], " ")
+    m.stdout_lines = stdout.String()
+    m.stderr_lines = stderr.String()
+    m.strace_lines = string(strace_data)
+    m.opened_files = string(openat)
+    m.connect_lines = string(connects)
+    m.selected_tab = 0
+    m.exit_code = cmd.ProcessState.ExitCode()
+    m.stdin_ti = ti
+
+    fmt.Print(m)
+    return nil
+
+
 }
 
 // this method is required by BubbleTea
@@ -42,7 +78,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             case "shift+tab":
                 m.selected_tab = (m.selected_tab + 4) % 5
             case "ctrl+c":
-                return m, tea.Quit
+                return &m, tea.Quit
         }
 
     case tea.WindowSizeMsg:
@@ -77,7 +113,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     m.vp, vp_cmd = m.vp.Update(msg)
     m.stdin_ti, tiCmd = m.stdin_ti.Update(msg)
 
-    return m, tea.Batch(tiCmd, vp_cmd)
+    // fmt.Print(m)
+    return &m, tea.Batch(tiCmd, vp_cmd)
 }
 
 var tab_styles = map[bool]lg.Style{
@@ -128,42 +165,9 @@ func (m model) View() string {
 }
 
 func main() {
-    // FIXME: improve strace output handling
-    // maybe with a fifo
-    strace_file_path := "/tmp/loupe_strace"
-    _args := []string{"strace", "--output", strace_file_path}
 
-    args := os.Args[1:]
-    _args = append(_args, args...)
-    cmd := exec.Command(_args[0], _args[1:]...)
-
-    var stdout, stderr bytes.Buffer
-    cmd.Stdout = &stdout
-    cmd.Stderr = &stderr
-
-    cmd.Run()
-    ti := textinput.New()
-    ti.Placeholder = "stdin"
-    ti.Prompt = "$ "
-
-    strace_data, _ := os.ReadFile(strace_file_path)
-
-    openat, _ := exec.Command("sh", "-c", "awk '/openat/ {print $2}' /tmp/loupe_strace | sed 's/^\"//; s/\",$//' ").Output()
-    connects, _ := exec.Command("sh", "-c", "awk '/connect/ {print $0}' /tmp/loupe_strace").Output()
-
-    initial_state := model{com: strings.Join(os.Args[1:], " "),
-                           stdout_lines: stdout.String(),
-                           stderr_lines: stderr.String(),
-                           strace_lines: string(strace_data),
-                           opened_files: string(openat),
-                           connect_lines: string(connects),
-                           selected_tab: 0,
-                           exit_code: cmd.ProcessState.ExitCode(),
-                           stdin_ti: ti,
-                           }
-
-    p := tea.NewProgram(initial_state,
-                        tea.WithAltScreen(),
+    p := tea.NewProgram(&model{},
+                        // tea.WithAltScreen(),
                         tea.WithMouseCellMotion())
 
     if _, err := p.Run(); err != nil {
