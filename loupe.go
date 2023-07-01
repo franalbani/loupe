@@ -1,6 +1,88 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/franalbani/loupe/worker"
+)
+
+type Notes struct {
+	current string
+	rest    chan string
+}
+
+type model struct {
+	selected int
+	output   []string
+}
+
+func (n Notes) awaitNext() Notes {
+	return Notes{current: <-n.rest, rest: n.rest}
+}
+
+func (m model) Init() tea.Cmd {
+	args := os.Args[1:]
+	worker := worker.NewWorker(args[0], nil)
+	outputCh := make(chan string)
+
+	go worker.Run(outputCh)
+
+	return func() tea.Msg {
+		return Notes{current: <-outputCh, rest: outputCh}
+	}
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "tab":
+			m.selected = (m.selected + 1) % 3
+		}
+
+	case Notes:
+		m.output = append(m.output, msg.current)
+		return m, func() tea.Msg { return msg.awaitNext() }
+	}
+
+	return m, nil
+}
+
+func (m model) View() string {
+	if m.selected == 1 {
+		return strings.Join(m.output, "\n")
+	}
+
+	if m.selected == 2 {
+		return "This is other view"
+	}
+
+	return "Soon"
+}
+
+func main() {
+	p := tea.NewProgram(
+		model{
+			output: []string{},
+		},
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	)
+
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("tea Error: %v", err)
+		os.Exit(1)
+	}
+}
+
+/*
+import (
         "fmt"
         "bytes"
         "os"
@@ -171,3 +253,4 @@ func main() {
         os.Exit(1)
     }
 }
+*/
