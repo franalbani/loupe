@@ -9,7 +9,7 @@ Linux process monitor wrapper, with a TUI built with [BubbleTea](https://github.
 
 ```console
 $ go mod tidy
-$ go build loupe
+$ go build
 # ./loupe command arg0 arg1 etc
 ```
 

@@ -13,13 +13,31 @@ import (
 	    "github.com/franalbani/loupe/worker"
 )
 
+// this type serves as a Msg emitted
+// when there are new lines in either stdout ot stderr
+// err indicates which
 type Notes struct {
-	current string
-	rest    chan string
+    last_line string
+    err bool
+    stdout_ch, stderr_ch chan string
 }
 
+// this method watches for a new line in stdout or stderr
+// and emits a new Note with it
 func (n Notes) awaitNext() Notes {
-	return Notes{current: <-n.rest, rest: n.rest}
+    err := false
+    last := ""
+    select {
+    case line := <- n.stdout_ch:
+        last = line
+    case line := <- n.stderr_ch:
+        err = true
+        last = line
+    }
+    return Notes{last_line: last,
+                 err: err,
+                 stdout_ch: n.stdout_ch,
+                 stderr_ch: n.stderr_ch}
 }
 
 // this model will be used for BubbleTea state
@@ -46,17 +64,18 @@ func (m *model) Init() tea.Cmd {
     args := os.Args[1:]
     _args = append(_args, args...)
 
-	worker := worker.NewWorker(_args)
-	outputCh := make(chan string)
-    go worker.Run(outputCh)
+    stdout_ch := make(chan string)
+    stderr_ch := make(chan string)
 
-    // cmd := exec.Command(_args[0], _args[1:]...)
+    cmd := exec.Command(_args[0], _args[1:]...)
+    stdout_pipe, _ := cmd.StdoutPipe()
+    stderr_pipe, _ := cmd.StderrPipe()
+    go worker.Inhale(stdout_pipe, stdout_ch)
+    go worker.Inhale(stderr_pipe, stderr_ch)
+    cmd.Start()
 
-    // var stdout, stderr bytes.Buffer
-    // cmd.Stdout = &stdout
-    // cmd.Stderr = &stderr
+    // TODO: go rutina para esperar el cierre y emitir exit_code
 
-    // cmd.Run()
     ti := textinput.New()
     ti.Placeholder = "stdin"
     ti.Prompt = "$ "
@@ -73,10 +92,8 @@ func (m *model) Init() tea.Cmd {
     m.selected_tab = 0
     m.stdin_ti = ti
 
-	return func() tea.Msg {
-	    return Notes{current: <-outputCh, rest: outputCh}
-	}
-
+    init_note := Notes{stdout_ch: stdout_ch, stderr_ch: stderr_ch}
+	return func() tea.Msg { return init_note.awaitNext() }
 }
 
 // this method is required by BubbleTea
@@ -107,7 +124,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         m.vp.Style = content_style
 
 	case Notes:
-		m.stdout_lines = append(m.stdout_lines, msg.current)
+        switch msg.err {
+        case false:
+            m.stdout_lines = append(m.stdout_lines, msg.last_line)
+        case true:
+            m.stderr_lines = append(m.stderr_lines, msg.last_line)
+        }
         seba_cmd = func() tea.Msg { return msg.awaitNext() }
 	}
 
@@ -131,7 +153,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     m.vp, vp_cmd = m.vp.Update(msg)
     m.stdin_ti, tiCmd = m.stdin_ti.Update(msg)
 
-    // fmt.Print(m)
     return &m, tea.Batch(tiCmd, vp_cmd, seba_cmd)
 }
 
