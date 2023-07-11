@@ -53,7 +53,7 @@ func (n Notes) awaitNext() Notes {
 
 // this model will be used for BubbleTea state
 type model struct {
-    com string
+    cmd *exec.Cmd
     stdout_lines, stderr_lines []string
     strace_lines string
     opened_files, connect_lines string
@@ -78,12 +78,12 @@ func (m *model) Init() tea.Cmd {
     stdout_ch := make(chan string)
     stderr_ch := make(chan string)
 
-    cmd := exec.Command(_args[0], _args[1:]...)
-    stdout_pipe, _ := cmd.StdoutPipe()
-    stderr_pipe, _ := cmd.StderrPipe()
+    m.cmd = exec.Command(_args[0], _args[1:]...)
+    stdout_pipe, _ := m.cmd.StdoutPipe()
+    stderr_pipe, _ := m.cmd.StderrPipe()
     go worker.Inhale(stdout_pipe, stdout_ch)
     go worker.Inhale(stderr_pipe, stderr_ch)
-    cmd.Start()
+    m.cmd.Start()
 
     exit_ch := make(chan int)
     go worker.Waiter(m.cmd, exit_ch)
@@ -97,7 +97,6 @@ func (m *model) Init() tea.Cmd {
     openat, _ := exec.Command("sh", "-c", "awk '/openat/ {print $2}' /tmp/loupe_strace | sed 's/^\"//; s/\",$//' ").Output()
     connects, _ := exec.Command("sh", "-c", "awk '/connect/ {print $0}' /tmp/loupe_strace").Output()
 
-    m.com = strings.Join(os.Args[1:], " ")
     m.strace_lines = string(strace_data)
     m.opened_files = string(openat)
     m.connect_lines = string(connects)
@@ -215,7 +214,7 @@ func (m model) View() string {
     }
     ec_style := lg.NewStyle().Foreground(lg.Color(ec_color))
     s := lg.JoinVertical(lg.Left,
-            tab_styles[false].Render(m.com),
+            tab_styles[false].Render(strings.Join(m.cmd.Args[1:], " ")),
             "| Exit code: " + ec_style.Render(fmt.Sprintf("%d", m.exit_code)),
             tab_header(m.selected_tab),
             m.vp.View(),
