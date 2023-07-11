@@ -3,6 +3,7 @@ package worker
 import (
 	"bufio"
     "io"
+    "os/exec"
 )
 
 func Inhale(pipe io.ReadCloser, output chan string) {
@@ -14,4 +15,9 @@ func Inhale(pipe io.ReadCloser, output chan string) {
 		line := scanner.Text()
 		output <- line
 	}
+}
+
+func Waiter(cmd *exec.Cmd, exit_ch chan int) {
+        cmd.Wait()
+        exit_ch <- cmd.ProcessState.ExitCode()
 }

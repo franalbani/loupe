@@ -9,8 +9,7 @@ import (
         lg "github.com/charmbracelet/lipgloss"
         "github.com/charmbracelet/bubbles/viewport"
         "github.com/charmbracelet/bubbles/textinput"
-
-	    "github.com/franalbani/loupe/worker"
+        "github.com/franalbani/loupe/worker"
 )
 
 // this type serves as a Msg emitted
@@ -20,6 +19,9 @@ type Notes struct {
     last_line string
     err bool
     stdout_ch, stderr_ch chan string
+    exit_ch chan int
+    exit_code int
+    running bool
 }
 
 // this method watches for a new line in stdout or stderr
@@ -27,17 +29,26 @@ type Notes struct {
 func (n Notes) awaitNext() Notes {
     err := false
     last := ""
+    ec := 0
+    running := true
     select {
     case line := <- n.stdout_ch:
         last = line
     case line := <- n.stderr_ch:
         err = true
         last = line
+    case exit_code := <- n.exit_ch:
+        ec = exit_code
+        running = false
     }
     return Notes{last_line: last,
                  err: err,
+                 exit_code: ec,
                  stdout_ch: n.stdout_ch,
-                 stderr_ch: n.stderr_ch}
+                 stderr_ch: n.stderr_ch,
+                 exit_ch: n.exit_ch,
+                 running: running,
+             }
 }
 
 // this model will be used for BubbleTea state
@@ -74,7 +85,8 @@ func (m *model) Init() tea.Cmd {
     go worker.Inhale(stderr_pipe, stderr_ch)
     cmd.Start()
 
-    // TODO: go rutina para esperar el cierre y emitir exit_code
+    exit_ch := make(chan int)
+    go worker.Waiter(m.cmd, exit_ch)
 
     ti := textinput.New()
     ti.Placeholder = "stdin"
@@ -92,7 +104,11 @@ func (m *model) Init() tea.Cmd {
     m.selected_tab = 0
     m.stdin_ti = ti
 
-    init_note := Notes{stdout_ch: stdout_ch, stderr_ch: stderr_ch}
+    init_note := Notes{stdout_ch: stdout_ch,
+                       stderr_ch: stderr_ch,
+                       exit_ch: exit_ch,
+                       running: true,
+                   }
 	return func() tea.Msg { return init_note.awaitNext() }
 }
 
@@ -123,12 +139,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         // FIXME: force a minimum Width for borders
         m.vp.Style = content_style
 
+    // FIXME: each one of these should be a different message type
 	case Notes:
-        switch msg.err {
-        case false:
-            m.stdout_lines = append(m.stdout_lines, msg.last_line)
-        case true:
-            m.stderr_lines = append(m.stderr_lines, msg.last_line)
+        if msg.running {
+            switch msg.err {
+            case false:
+                m.stdout_lines = append(m.stdout_lines, msg.last_line)
+            case true:
+                m.stderr_lines = append(m.stderr_lines, msg.last_line)
+            }
+        } else {
+            m.exit_code = msg.exit_code
         }
         seba_cmd = func() tea.Msg { return msg.awaitNext() }
 	}
@@ -206,7 +227,7 @@ func (m model) View() string {
 func main() {
 
     p := tea.NewProgram(&model{},
-                        // tea.WithAltScreen(),
+                        tea.WithAltScreen(),
                         tea.WithMouseCellMotion())
 
     if _, err := p.Run(); err != nil {
