@@ -62,6 +62,7 @@ type model struct {
     ready bool
     vp viewport.Model
     stdin_ti textinput.Model
+    running bool
 }
 
 // this method is required by BubbleTea
@@ -84,6 +85,7 @@ func (m *model) Init() tea.Cmd {
     go worker.Inhale(stdout_pipe, stdout_ch)
     go worker.Inhale(stderr_pipe, stderr_ch)
     m.cmd.Start()
+    m.running = true
 
     exit_ch := make(chan int)
     go worker.Waiter(m.cmd, exit_ch)
@@ -148,6 +150,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 m.stderr_lines = append(m.stderr_lines, msg.last_line)
             }
         } else {
+            m.running = false
             m.exit_code = msg.exit_code
         }
         seba_cmd = func() tea.Msg { return msg.awaitNext() }
@@ -208,14 +211,18 @@ var help_footer = lg.NewStyle().
 // this method is required by BubbleTea
 func (m model) View() string {
 
-    ec_color := "3"
-    if m.exit_code != 0 {
-        ec_color = "9"
+    proc_state := "Running..."
+    if !m.running {
+        ec_color := "3"
+        if m.exit_code != 0 {
+            ec_color = "9"
+        }
+        ec_style := lg.NewStyle().Foreground(lg.Color(ec_color))
+        proc_state = "Exit code: " + ec_style.Render(fmt.Sprintf("%d", m.exit_code))
     }
-    ec_style := lg.NewStyle().Foreground(lg.Color(ec_color))
     s := lg.JoinVertical(lg.Left,
             tab_styles[false].Render(strings.Join(m.cmd.Args[1:], " ")),
-            "| Exit code: " + ec_style.Render(fmt.Sprintf("%d", m.exit_code)),
+            proc_state,
             tab_header(m.selected_tab),
             m.vp.View(),
             m.stdin_ti.View(),
