@@ -6,6 +6,8 @@ import (
         "os/exec"
         "strings"
         "bufio"
+        "path/filepath"
+        "golang.org/x/sys/unix"
         tea "github.com/charmbracelet/bubbletea"
         lg "github.com/charmbracelet/lipgloss"
         "github.com/charmbracelet/bubbles/viewport"
@@ -16,9 +18,9 @@ import (
 // this model will be used for BubbleTea state
 type model struct {
     cmd *exec.Cmd
-    stdout_scanner, stderr_scanner *bufio.Scanner
-    stdout_lines, stderr_lines []string
-    strace_lines string
+    stdout_scanner, stderr_scanner, strace_scanner *bufio.Scanner
+    strace_fifo_path string
+    stdout_lines, stderr_lines, strace_lines []string
     opened_files, connect_lines string
     selected_tab uint
     exit_code int
@@ -29,20 +31,31 @@ type model struct {
 
 type StdOutMsg string
 type StdErrMsg string
+type StraceMsg string
+type StraceScannerMsg *bufio.Scanner
 type BastaMsg string
 type ExitMsg int
 
-func inhale(pipeScanner *bufio.Scanner, wrapper func(string) tea.Msg) tea.Cmd {
+func inhale(pipeScanner *bufio.Scanner, wrapper func(string) tea.Msg, name string) tea.Cmd {
     return func() tea.Msg {
         if pipeScanner.Scan() {
             return wrapper(pipeScanner.Text())
         }
         if err := pipeScanner.Err(); err != nil {
-            log.Info(err)
+            log.Info(name, "err", err)
             return BastaMsg("Error")
         } else {
+            // log.Info(name + " EOF")
             return BastaMsg("EOF")
         }
+    }
+}
+
+// This is needed to avoid getting EOF
+func openStraceFifo(path string) tea.Cmd {
+    return func() tea.Msg {
+        strace_pipe, _ := os.Open(path)
+	    return StraceScannerMsg(bufio.NewScanner(strace_pipe))
     }
 }
 
@@ -59,8 +72,9 @@ func launchAndWait(cmd *exec.Cmd) tea.Cmd {
 // this method is required by BubbleTea
 func (m model) Init() tea.Cmd {
     return tea.Batch(
-            inhale(m.stdout_scanner, func(x string) tea.Msg {return StdOutMsg(x)}),
-            inhale(m.stderr_scanner, func(x string) tea.Msg {return StdErrMsg(x)}),
+            inhale(m.stdout_scanner, func(x string) tea.Msg {return StdOutMsg(x)}, "stdout"),
+            inhale(m.stderr_scanner, func(x string) tea.Msg {return StdErrMsg(x)}, "stderr"),
+            openStraceFifo(m.strace_fifo_path),
             launchAndWait(m.cmd))
 }
 
@@ -94,10 +108,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     // TODO: check if its really reading all output
     case StdOutMsg:
         m.stdout_lines = append(m.stdout_lines, string(msg))
-        seba_cmd = inhale(m.stdout_scanner, func(x string) tea.Msg {return StdOutMsg(x)})
+        seba_cmd = inhale(m.stdout_scanner, func(x string) tea.Msg {return StdOutMsg(x)}, "stdout")
     case StdErrMsg:
         m.stderr_lines = append(m.stderr_lines, string(msg))
-        seba_cmd = inhale(m.stderr_scanner, func(x string) tea.Msg {return StdErrMsg(x)})
+        seba_cmd = inhale(m.stderr_scanner, func(x string) tea.Msg {return StdErrMsg(x)}, "stderr")
+    case StraceMsg:
+        m.strace_lines = append(m.strace_lines, string(msg))
+        seba_cmd = inhale(m.strace_scanner, func(x string) tea.Msg {return StraceMsg(x)}, "strace")
+    case StraceScannerMsg:
+        m.strace_scanner = msg
+        seba_cmd = inhale(m.strace_scanner, func(x string) tea.Msg {return StraceMsg(x)}, "strace")
     case ExitMsg:
         m.exit_code = int(msg)
     }
@@ -110,7 +130,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case 1:
         content = strings.Join(m.stderr_lines, "\n")
     case 2:
-        content = m.strace_lines
+        content = strings.Join(m.strace_lines, "\n")
     case 3:
         content = m.opened_files
     case 4:
@@ -178,10 +198,15 @@ func (m model) View() string {
 }
 
 func main() {
-    // FIXME: improve strace output handling
-    // maybe with a fifo
-    strace_file_path := "/tmp/loupe_strace"
-    _args := []string{"strace", "--output", strace_file_path}
+    log.Info("main")
+    tempdir, _ := os.MkdirTemp("", "loupe_")
+    defer os.RemoveAll(tempdir)
+
+    strace_fifo_path := filepath.Join(tempdir, "strace")
+    unix.Mkfifo(strace_fifo_path, 0666)
+    log.Info("created strace_fifo", "at", strace_fifo_path)
+
+    _args := []string{"strace", "--output", strace_fifo_path}
 
     args := os.Args[1:]
     _args = append(_args, args...)
@@ -200,6 +225,7 @@ func main() {
         cmd: cmd,
         stdout_scanner: stdout_scanner,
         stderr_scanner: stderr_scanner,
+        strace_fifo_path: strace_fifo_path,
         selected_tab: 0,
         stdin_ti: ti,
     }
