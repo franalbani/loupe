@@ -10,6 +10,7 @@ import (
         lg "github.com/charmbracelet/lipgloss"
         "github.com/charmbracelet/bubbles/viewport"
         "github.com/charmbracelet/bubbles/textinput"
+        "github.com/charmbracelet/log"
 )
 
 // this model will be used for BubbleTea state
@@ -28,25 +29,20 @@ type model struct {
 
 type StdOutMsg string
 type StdErrMsg string
+type BastaMsg string
 type ExitMsg int
 
-func inhaler(pipeScanner *bufio.Scanner) string {
-    if pipeScanner.Scan() {
-        return pipeScanner.Text()
-    }
-    // FIXME: improve handling this case
-    return ""
-}
-
-func inhaleStdOut(pipeScanner *bufio.Scanner) tea.Cmd {
+func inhale(pipeScanner *bufio.Scanner, wrapper func(string) tea.Msg) tea.Cmd {
     return func() tea.Msg {
-        return StdOutMsg(inhaler(pipeScanner))
-    }
-}
-
-func inhaleStdErr (pipeScanner *bufio.Scanner) tea.Cmd {
-    return func() tea.Msg {
-        return StdErrMsg(inhaler(pipeScanner))
+        if pipeScanner.Scan() {
+            return wrapper(pipeScanner.Text())
+        }
+        if err := pipeScanner.Err(); err != nil {
+            log.Info(err)
+            return BastaMsg("Error")
+        } else {
+            return BastaMsg("EOF")
+        }
     }
 }
 
@@ -63,8 +59,8 @@ func launchAndWait(cmd *exec.Cmd) tea.Cmd {
 // this method is required by BubbleTea
 func (m model) Init() tea.Cmd {
     return tea.Batch(
-            inhaleStdOut(m.stdout_scanner),
-            inhaleStdErr(m.stderr_scanner),
+            inhale(m.stdout_scanner, func(x string) tea.Msg {return StdOutMsg(x)}),
+            inhale(m.stderr_scanner, func(x string) tea.Msg {return StdErrMsg(x)}),
             launchAndWait(m.cmd))
 }
 
@@ -98,10 +94,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     // TODO: check if its really reading all output
     case StdOutMsg:
         m.stdout_lines = append(m.stdout_lines, string(msg))
-        seba_cmd = inhaleStdOut(m.stdout_scanner)
+        seba_cmd = inhale(m.stdout_scanner, func(x string) tea.Msg {return StdOutMsg(x)})
     case StdErrMsg:
         m.stderr_lines = append(m.stderr_lines, string(msg))
-        seba_cmd = inhaleStdErr(m.stderr_scanner)
+        seba_cmd = inhale(m.stderr_scanner, func(x string) tea.Msg {return StdErrMsg(x)})
     case ExitMsg:
         m.exit_code = int(msg)
     }
