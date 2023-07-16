@@ -8,6 +8,7 @@ import (
         "bufio"
         "path/filepath"
         "golang.org/x/sys/unix"
+        "regexp"
         tea "github.com/charmbracelet/bubbletea"
         lg "github.com/charmbracelet/lipgloss"
         "github.com/charmbracelet/bubbles/viewport"
@@ -20,8 +21,7 @@ type model struct {
     cmd *exec.Cmd
     stdout_scanner, stderr_scanner, strace_scanner *bufio.Scanner
     strace_fifo_path string
-    stdout_lines, stderr_lines, strace_lines []string
-    opened_files, connect_lines string
+    stdout_lines, stderr_lines, strace_lines, opened_files, connect_lines []string
     selected_tab uint
     exit_code int
     ready bool
@@ -35,6 +35,9 @@ type StraceMsg string
 type StraceScannerMsg *bufio.Scanner
 type BastaMsg string
 type ExitMsg int
+
+var OpenatRegExp = regexp.MustCompile(`openat\((.*?), "(.*?)", (.*?)\).*`)
+var ConnectRegExp = regexp.MustCompile(`connect\(\d+, {.*?sin_addr=inet_addr\("([^"]+)"\)}, \d+\).*`)
 
 func inhale(pipeScanner *bufio.Scanner, wrapper func(string) tea.Msg, name string) tea.Cmd {
     return func() tea.Msg {
@@ -115,6 +118,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case StraceMsg:
         m.strace_lines = append(m.strace_lines, string(msg))
         seba_cmd = inhale(m.strace_scanner, func(x string) tea.Msg {return StraceMsg(x)}, "strace")
+        openat_match := OpenatRegExp.FindStringSubmatch(string(msg))
+        if len(openat_match) > 0 {
+            m.opened_files = append(m.opened_files, openat_match[2])
+        }
+        connect_match := ConnectRegExp.FindStringSubmatch(string(msg))
+        if len(connect_match) > 0 {
+            m.connect_lines = append(m.connect_lines, connect_match[1])
+        }
     case StraceScannerMsg:
         m.strace_scanner = msg
         seba_cmd = inhale(m.strace_scanner, func(x string) tea.Msg {return StraceMsg(x)}, "strace")
@@ -132,9 +143,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case 2:
         content = strings.Join(m.strace_lines, "\n")
     case 3:
-        content = m.opened_files
+        content = strings.Join(m.opened_files, "\n")
     case 4:
-        content = m.connect_lines
+        content = strings.Join(m.connect_lines, "\n")
     default:
         content = "soon"
     }
@@ -239,13 +250,3 @@ func main() {
         os.Exit(1)
     }
 }
-    // FIXME: find a better way to do this
-    // strace_data, _ := os.ReadFile(strace_file_path)
-
-    // openat, _ := exec.Command("sh", "-c", "awk '/openat/ {print $2}' /tmp/loupe_strace | sed 's/^\"//; s/\",$//' ").Output()
-    // connects, _ := exec.Command("sh", "-c", "awk '/connect/ {print $0}' /tmp/loupe_strace").Output()
-
-    // m.strace_lines = string(strace_data)
-    // m.opened_files = string(openat)
-    // m.connect_lines = string(connects)
-
