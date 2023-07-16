@@ -3,6 +3,7 @@ package main
 import (
         "fmt"
         "os"
+        "io"
         "os/exec"
         "strings"
         "bufio"
@@ -20,6 +21,7 @@ import (
 type model struct {
     cmd *exec.Cmd
     stdout_scanner, stderr_scanner, strace_scanner *bufio.Scanner
+    stdin_pipe io.WriteCloser
     strace_fifo_path string
     stdout_lines, stderr_lines, strace_lines, opened_files, connect_lines []string
     selected_tab uint
@@ -78,12 +80,14 @@ func (m model) Init() tea.Cmd {
             inhale(m.stdout_scanner, func(x string) tea.Msg {return StdOutMsg(x)}, "stdout"),
             inhale(m.stderr_scanner, func(x string) tea.Msg {return StdErrMsg(x)}, "stderr"),
             openStraceFifo(m.strace_fifo_path),
-            launchAndWait(m.cmd))
+            launchAndWait(m.cmd),
+            textinput.Blink,
+        )
 }
 
 // this method is required by BubbleTea
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    var tiCmd, vp_cmd, seba_cmd tea.Cmd
+    var teaCmdBag []tea.Cmd
 
     switch msg := msg.(type) {
 
@@ -95,6 +99,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 m.selected_tab = (m.selected_tab + 4) % 5
             case "ctrl+c":
                 return m, tea.Quit
+            case "enter":
+                if m.stdin_ti.Focused() {
+                    v := m.stdin_ti.Value()
+                    // FIXME: should this be a tea.Cmd?
+                    go func () { io.WriteString(m.stdin_pipe, v + "\n")}()
+                    m.stdin_ti.Reset()
+                    m.stdin_ti.Blur()
+                } else {
+                    m.stdin_ti.Focus()
+                }
         }
 
     case tea.WindowSizeMsg:
@@ -111,13 +125,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     // TODO: check if its really reading all output
     case StdOutMsg:
         m.stdout_lines = append(m.stdout_lines, string(msg))
-        seba_cmd = inhale(m.stdout_scanner, func(x string) tea.Msg {return StdOutMsg(x)}, "stdout")
+        teaCmdBag = append(teaCmdBag, inhale(m.stdout_scanner, func(x string) tea.Msg {return StdOutMsg(x)}, "stdout"))
     case StdErrMsg:
         m.stderr_lines = append(m.stderr_lines, string(msg))
-        seba_cmd = inhale(m.stderr_scanner, func(x string) tea.Msg {return StdErrMsg(x)}, "stderr")
+        teaCmdBag = append(teaCmdBag, inhale(m.stderr_scanner, func(x string) tea.Msg {return StdErrMsg(x)}, "stderr"))
     case StraceMsg:
         m.strace_lines = append(m.strace_lines, string(msg))
-        seba_cmd = inhale(m.strace_scanner, func(x string) tea.Msg {return StraceMsg(x)}, "strace")
+        teaCmdBag = append(teaCmdBag, inhale(m.strace_scanner, func(x string) tea.Msg {return StraceMsg(x)}, "strace"))
         openat_match := OpenatRegExp.FindStringSubmatch(string(msg))
         if len(openat_match) > 0 {
             m.opened_files = append(m.opened_files, openat_match[2])
@@ -128,7 +142,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         }
     case StraceScannerMsg:
         m.strace_scanner = msg
-        seba_cmd = inhale(m.strace_scanner, func(x string) tea.Msg {return StraceMsg(x)}, "strace")
+        teaCmdBag = append(teaCmdBag, inhale(m.strace_scanner, func(x string) tea.Msg {return StraceMsg(x)}, "strace"))
     case ExitMsg:
         m.exit_code = int(msg)
     }
@@ -151,10 +165,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     }
     m.vp.SetContent(content)
 
+    var vp_cmd, ti_cmd tea.Cmd
     m.vp, vp_cmd = m.vp.Update(msg)
-    m.stdin_ti, tiCmd = m.stdin_ti.Update(msg)
+    teaCmdBag = append(teaCmdBag, vp_cmd)
+    m.stdin_ti, ti_cmd = m.stdin_ti.Update(msg)
+    teaCmdBag = append(teaCmdBag, ti_cmd)
 
-    return m, tea.Batch(tiCmd, vp_cmd, seba_cmd)
+    return m, tea.Batch(teaCmdBag...)
 }
 
 var tab_styles = map[bool]lg.Style{
@@ -225,6 +242,7 @@ func main() {
     cmd := exec.Command(_args[0], _args[1:]...)
     stdout_pipe, _ := cmd.StdoutPipe()
     stderr_pipe, _ := cmd.StderrPipe()
+    stdin_pipe, _ := cmd.StdinPipe()
     stdout_scanner := bufio.NewScanner(stdout_pipe)
 	stderr_scanner := bufio.NewScanner(stderr_pipe)
 
