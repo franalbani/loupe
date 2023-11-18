@@ -4,6 +4,8 @@ Linux process monitor wrapper, with a TUI built with [BubbleTea](https://github.
 
 ![Screenshot](./2023.06.25.screenshot.png)
 
+## Dependencies
+strace
 
 ## Usage
 
